@@ -5,7 +5,8 @@ on:
     inputs:
       clusterName:
         description: 'Name of the EKS cluster'
-        required: true
+        required: false
+        default: 'demo-test-app2-cluster'
       awsRegion:
         description: 'AWS Region for the cluster'
         required: true
@@ -34,50 +35,26 @@ jobs:
           sudo mv /tmp/eksctl /usr/local/bin
           eksctl version
 
-      - name: Create EKS Cluster
+      - name: Check if EKS Cluster Exists
+        id: check-cluster
         run: |
-          eksctl create cluster --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }} --nodes 2 --managed
-
-      - name: Configure kubectl
-        run: |
-          aws eks update-kubeconfig --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }}
-          kubectl get nodes
-
-      - name: Check if k8s_deployment.yaml exists
-        id: check_file
-        run: |
-          if [ -f "k8s_deployment.yaml" ]; then
-            echo "File exists"
+          if eksctl get cluster --name demo-test-app2-cluster --region ${{ github.event.inputs.awsRegion }}; then
+            echo "EKS cluster exists."
             echo "EXISTS=true" >> $GITHUB_ENV
           else
-            echo "File does not exist"
+            echo "EKS cluster does not exist."
             echo "EXISTS=false" >> $GITHUB_ENV
           fi
 
-      - name: Create default k8s deployment file if missing
+      - name: Create EKS Cluster if Not Exists
         if: env.EXISTS == 'false'
         run: |
-          cat <<EOF > k8s_deployment.yaml
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: my-app
-          spec:
-            replicas: 2
-            selector:
-              matchLabels:
-                app: my-app
-            template:
-              metadata:
-                labels:
-                  app: my-app
-              spec:
-                containers:
-                  - name: my-app
-                    image: nginx
-                    ports:
-                      - containerPort: 80
-          EOF
+          eksctl create cluster --name demo-test-app2-cluster --region ${{ github.event.inputs.awsRegion }} --nodes 2 --managed
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --name demo-test-app2-cluster --region ${{ github.event.inputs.awsRegion }}
+          kubectl get nodes
 
       - name: Deploy Application
         run: |
@@ -103,4 +80,4 @@ jobs:
 
       - name: Delete EKS Cluster
         run: |
-          eksctl delete cluster --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }}
+          eksctl delete cluster --name demo-test-app2-cluster --region ${{ github.event.inputs.awsRegion }}
