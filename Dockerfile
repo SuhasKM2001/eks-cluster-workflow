@@ -1,8 +1,7 @@
+# Use a lightweight web server image (e.g., Nginx)
 FROM nginx:alpine
 
+# Copy your HTML file into the Nginx default web directory
 COPY index.html /usr/share/nginx/html/
-
-# Override the default Nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 8080
