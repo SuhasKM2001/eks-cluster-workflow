@@ -13,6 +13,9 @@ on:
       action:
         description: 'Action to perform (apply/destroy)'
         required: true
+      newRepoUrl:
+        description: 'URL of the newly created repository'
+        required: true
 
 jobs:
   apply_cluster:
@@ -21,6 +24,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.newRepoUrl.split('github.com/')[1] }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -28,6 +34,24 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ github.event.inputs.awsRegion }}
+
+      - name: Create ECR Repository
+        run: |
+          aws ecr create-repository --repository-name aws_backstage_ecr --region us-east-1 || echo "Repository already exists"
+          REPOSITORY_URI=$(aws ecr describe-repositories --repository-names aws_backstage_ecr --region us-east-1 --query 'repositories[0].repositoryUri' --output text)
+           echo "REPOSITORY_URI=$REPOSITORY_URI" >> $GITHUB_ENV
+      
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ env.REPOSITORY_URI }}
+      
+      - name: Build Docker image
+        run: docker build -t aws_backstage_ecr .
+      
+      - name: Tag and push image to ECR
+        run: | 
+          docker tag aws_backstage_ecr:latest ${{ env.REPOSITORY_URI }}:latest
+          docker push ${{ env.REPOSITORY_URI }}:latest
 
       - name: Install eksctl
         run: |
@@ -38,7 +62,7 @@ jobs:
       - name: Check if EKS Cluster Exists
         id: check-cluster
         run: |
-          if eksctl get cluster --name demo-test-app2-cluster --region ${{ github.event.inputs.awsRegion }}; then
+          if eksctl get cluster --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }}; then
             echo "EKS cluster exists."
             echo "EXISTS=true" >> $GITHUB_ENV
           else
@@ -49,11 +73,15 @@ jobs:
       - name: Create EKS Cluster if Not Exists
         if: env.EXISTS == 'false'
         run: |
-          eksctl create cluster --name demo-test-app2-cluster --region ${{ github.event.inputs.awsRegion }} --nodes 2 --managed
+          eksctl create cluster --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }} --nodes 1 --managed
+      
+      - name: Update Kubernetes deployment file
+        run: |
+          sed -i "s|IMAGE_URI|${{ env.REPOSITORY_URI }}:latest|g" k8s_deployment.yaml
 
       - name: Configure kubectl
         run: |
-          aws eks update-kubeconfig --name demo-test-app2-cluster --region ${{ github.event.inputs.awsRegion }}
+          aws eks update-kubeconfig --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }}
           kubectl get nodes
 
       - name: Deploy Application
