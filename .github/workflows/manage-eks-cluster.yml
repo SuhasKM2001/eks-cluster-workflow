@@ -25,7 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ replace(replace(github.event.inputs.newRepoUrl, 'https://github.com/', ''), '.git', '') }}
+          repository: ${{ github.event.inputs.newRepoUrl }}
           token: ${{ secrets.PAT_TOKEN }}
 
       - name: Configure AWS credentials
