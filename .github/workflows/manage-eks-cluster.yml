@@ -98,7 +98,7 @@ jobs:
             LB_HOSTNAME=$(kubectl get svc my-app-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
             if [ ! -z "$LB_HOSTNAME" ]; then
               echo "lb_url=$LB_HOSTNAME" >> $GITHUB_ENV
-              echo "deployment_url=http://$LB_HOSTNAME" >> $GITHUB_OUTPUT
+              echo "deploymentUrl=http://$LB_HOSTNAME" >> $GITHUB_OUTPUT
               echo "Load Balancer URL: http://$LB_HOSTNAME"
               break
             fi
@@ -107,7 +107,7 @@ jobs:
             counter=$((counter + 10))
           done
           if [ -z "$LB_HOSTNAME" ]; then
-            echo "deployment_url=LoadBalancer URL not found" >> $GITHUB_OUTPUT
+            echo "deploymentUrl=LoadBalancer URL not found" >> $GITHUB_OUTPUT
             exit 1
           fi
 
