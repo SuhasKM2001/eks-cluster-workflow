@@ -99,7 +99,7 @@ jobs:
             if [ ! -z "$LB_HOSTNAME" ]; then
               echo "lb_url=$LB_HOSTNAME" >> $GITHUB_ENV
               echo "deploymentUrl=http://$LB_HOSTNAME" >> $GITHUB_OUTPUT
-              echo "Load Balancer URL: http://$LB_HOSTNAME"
+              echo "Deployed Application URL: http://$LB_HOSTNAME"
               break
             fi
             echo "Waiting for LoadBalancer hostname... (${counter}s)"
