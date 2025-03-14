@@ -88,6 +88,27 @@ jobs:
         run: |
           kubectl apply -f k8s_deployment.yaml
           kubectl get pods
+      
+      - name: Get EKS Cluster Info
+        id: eks-info
+        run: |
+          timeout=100
+          counter=0
+          while [ $counter -lt $timeout ]; do
+            LB_HOSTNAME=$(kubectl get svc my-app-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+            if [ ! -z "$LB_HOSTNAME" ]; then
+              echo "lb_url=$LB_HOSTNAME" >> $GITHUB_ENV
+              echo "::set-output name=deployment_url::http://$LB_HOSTNAME"
+              break
+            fi
+            echo "Waiting for LoadBalancer hostname... (${counter}s)"
+            sleep 10
+            counter=$((counter + 10))
+          done
+          if [ -z "$LB_HOSTNAME" ]; then
+            echo "::set-output name=deployment_url::LoadBalancer URL not found"
+            exit 1
+          fi
 
   destroy_cluster:
     runs-on: ubuntu-latest
