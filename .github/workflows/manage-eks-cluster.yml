@@ -33,6 +33,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ github.event.inputs.awsRegion }}
 
       - name: Create ECR Repository
@@ -69,25 +70,89 @@ jobs:
             echo "EKS cluster does not exist."
             echo "EXISTS=false" >> $GITHUB_ENV
           fi
-
-      - name: Create EKS Cluster if Not Exists
-        if: env.EXISTS == 'false'
+      
+      - name: Create EKS Cluster
         run: |
-          eksctl create cluster --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }} --nodes 1 --managed
+          CLUSTER_NAME = ${{ github.event.inputs.clusterName }}
+          EKS_ROLE_ARN=arn:aws:iam::014498663330:role/EKS_Cluster_Policy
+          EC2_ROLE_ARN=arn:aws:iam::014498663330:role/EKS_WorkerNode_Policy
+          SUBNET_IDS="subnet-005591da9a1a78afb,subnet-04608fc27c7dbdda6"
+          SECURITY_GROUP_IDS="sg-0d6abbc8d38ecfc9b"
+
+          CLUSTER_STATUS=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.status" --output text 2>/dev/null || echo "NOT_FOUND")
+
+          if [ "$CLUSTER_STATUS" == "ACTIVE" ]; then
+            echo "EKS cluster '$CLUSTER_NAME' already exists and is active. Skipping creation."
+          else
+            echo "EKS cluster '$CLUSTER_NAME' not found or not active. Creating a new cluster."
+            aws eks create-cluster \
+              --name $CLUSTER_NAME \
+              --role-arn $EKS_ROLE_ARN \
+              --resources-vpc-config subnetIds=$SUBNET_IDS,securityGroupIds=$SECURITY_GROUP_IDS
+            aws eks wait cluster-active --name $CLUSTER_NAME
+          fi
+
+      - name: Create Node Group
+        run: |
+          CLUSTER_NAME=${{ github.event.inputs.clusterName }}
+          NODEGROUP_NAME=backstage-node-group
+          EC2_ROLE_ARN=arn:aws:iam::014498663330:role/EKS_WorkerNode_Policy
+          SUBNET_IDS="subnet-005591da9a1a78afb subnet-04608fc27c7dbdda6"
+          
+          # Check if nodegroup exists
+          NODEGROUP_STATUS=$(aws eks describe-nodegroup \
+            --cluster-name $CLUSTER_NAME \
+            --nodegroup-name $NODEGROUP_NAME \
+            --query 'nodegroup.status' \
+            --output text 2>/dev/null || echo "NOT_FOUND")
+          
+          if [ "$NODEGROUP_STATUS" != "NOT_FOUND" ]; then
+            echo "Node group '$NODEGROUP_NAME' already exists with status: $NODEGROUP_STATUS"
+            if [ "$NODEGROUP_STATUS" != "ACTIVE" ]; then
+              echo "Waiting for existing nodegroup to become active..."
+              aws eks wait nodegroup-active \
+                --cluster-name $CLUSTER_NAME \
+                --nodegroup-name $NODEGROUP_NAME
+            fi
+          else
+            echo "Creating new node group..."
+            # Create nodegroup and wait for it to be active
+            aws eks create-nodegroup \
+              --cluster-name $CLUSTER_NAME \
+              --nodegroup-name $NODEGROUP_NAME \
+              --subnets $SUBNET_IDS \
+              --node-role $EC2_ROLE_ARN \
+              --scaling-config minSize=1,maxSize=2,desiredSize=1
+            
+            echo "Waiting for nodegroup to become active..."
+            aws eks wait nodegroup-active \
+              --cluster-name $CLUSTER_NAME \
+              --nodegroup-name $NODEGROUP_NAME
+          fi
       
       - name: Update Kubernetes deployment file
         run: |
           sed -i "s|IMAGE_URI|${{ env.REPOSITORY_URI }}:latest|g" k8s_deployment.yaml
 
       - name: Configure kubectl
+        run: | 
+          aws eks -- region ${{ github.event.inputs.awsRegion }} update-kubeconfig --name ${{ github.event.inputs.clusterName }}
+          kubectl config view --raw
+      
+      - name: Check EKS cluster and node status
         run: |
-          aws eks update-kubeconfig --name ${{ github.event.inputs.clusterName }} --region ${{ github.event.inputs.awsRegion }}
+          echo "Checking cluster status..."
+          aws eks describe-cluster --name ${{ github.event.inputs.clusterName }} --query "cluster.status" --output text
+          echo "Waiting for nodes to be ready..."
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          echo "Nodes status:"
           kubectl get nodes
-
+      
       - name: Deploy Application
         run: |
+          kubectl version --client
+          kubectl cluster-info
           kubectl apply -f k8s_deployment.yaml
-          kubectl get pods
       
       - name: Get EKS Cluster Info
         id: eks-info
@@ -110,4 +175,3 @@ jobs:
             echo "deploymentUrl=LoadBalancer URL not found" >> $GITHUB_OUTPUT
             exit 1
           fi
-
