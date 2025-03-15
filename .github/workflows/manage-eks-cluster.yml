@@ -94,8 +94,9 @@ jobs:
           fi
 
       - name: Create Node Group
+        env: 
+          CLUSTER_NAME: ${{ github.event.inputs.clusterName }}
         run: |
-          CLUSTER_NAME=backstage-cluster
           NODEGROUP_NAME=backstage-node-group
           EC2_ROLE_ARN=arn:aws:iam::014498663330:role/EKS_WorkerNode_Policy
           SUBNET_IDS="subnet-005591da9a1a78afb subnet-04608fc27c7dbdda6"
